@@ -18,7 +18,7 @@ public class MonProjetApplication {
     }
 
     @Bean
-    CommandLineRunner initAdmin(
+    CommandLineRunner initData(
             UserRepository userRepository,
             PasswordEncoder passwordEncoder,
             @Value("${admin.email}") String adminEmail,
@@ -26,8 +26,9 @@ public class MonProjetApplication {
             @Value("${admin.username}") String adminUsername) {
 
         return args -> {
+            // ADMIN — twoFaEnabled = false, APPROVED
             if (!userRepository.existsByEmail(adminEmail)) {
-                User admin = User.builder()
+                userRepository.save(User.builder()
                     .username(adminUsername)
                     .email(adminEmail)
                     .passwordHash(passwordEncoder.encode(adminPassword))
@@ -35,8 +36,7 @@ public class MonProjetApplication {
                     .statut(User.Statut.APPROVED)
                     .solde(BigDecimal.ZERO)
                     .twoFaEnabled(false)
-                    .build();
-                userRepository.save(admin);
+                    .build());
                 System.out.println(">>> Admin créé : " + adminEmail);
             }
         };

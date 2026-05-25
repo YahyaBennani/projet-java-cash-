@@ -24,7 +24,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
-import java.util.Base64;
 import java.util.HexFormat;
 
 @Service
@@ -76,14 +75,18 @@ public class AuthService {
             throw new RuntimeException("Identifiants incorrects");
 
         if (user.getStatut() == User.Statut.PENDING)
-            throw new RuntimeException("Compte en attente d'approbation");
+            throw new RuntimeException("Compte en attente d'approbation admin");
 
         if (user.getStatut() == User.Statut.BLOCKED)
             throw new RuntimeException("Compte bloqué");
 
-        if (user.isTwoFaEnabled()) {
+        // OTP obligatoire pour TOUS les ROLE_CLIENT — indépendamment de twoFaEnabled en base
+        // ROLE_ADMIN → tokens directs (admin créé en interne, pas via inscription publique)
+        if (user.getRole() == User.Role.ROLE_CLIENT) {
+            String preAuthToken = jwtService.generatePreAuthToken(user);
             return AuthResponse.builder()
-                    .message("OTP_REQUIRED")
+                    .accessToken(preAuthToken)
+                    .message("OTP_REQUIRED — envoyez preAuthToken + otpCode à /auth/verify-otp")
                     .build();
         }
 
@@ -92,15 +95,29 @@ public class AuthService {
 
     @Transactional
     public AuthResponse verifyOtp(VerifyOtpRequest req) {
-        User user = userRepository.findByEmail(req.getEmail())
+
+        if (req.getPreAuthToken() == null || req.getPreAuthToken().isBlank())
+            throw new RuntimeException("preAuthToken manquant — appelez d'abord /auth/login");
+
+        if (!jwtService.isTokenValid(req.getPreAuthToken()))
+            throw new RuntimeException("preAuthToken expiré ou invalide — refaites /auth/login");
+
+        if (!jwtService.isPreAuthToken(req.getPreAuthToken()))
+            throw new RuntimeException("Token non autorisé pour cette opération");
+
+        Long userId = jwtService.extractUserId(req.getPreAuthToken());
+        User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("Utilisateur introuvable"));
 
-        CodeGenerator codeGenerator = new DefaultCodeGenerator();
-        CodeVerifier verifier = new DefaultCodeVerifier(
-                codeGenerator, new SystemTimeProvider());
+        if (user.getStatut() == User.Statut.PENDING)
+            throw new RuntimeException("Compte en attente d'approbation");
+        if (user.getStatut() == User.Statut.BLOCKED)
+            throw new RuntimeException("Compte bloqué");
 
-        boolean valid = verifier.isValidCode(user.getTotpSecret(), req.getOtpCode());
-        if (!valid)
+        CodeGenerator codeGenerator = new DefaultCodeGenerator();
+        CodeVerifier verifier = new DefaultCodeVerifier(codeGenerator, new SystemTimeProvider());
+
+        if (!verifier.isValidCode(user.getTotpSecret(), req.getOtpCode()))
             throw new RuntimeException("Code OTP invalide");
 
         return generateTokens(user);

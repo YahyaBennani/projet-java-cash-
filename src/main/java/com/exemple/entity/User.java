@@ -54,7 +54,8 @@ public class User {
         if (solde == null) solde = BigDecimal.ZERO;
         if (statut == null) statut = Statut.PENDING;
         if (role == null) role = Role.ROLE_CLIENT;
-        twoFaEnabled = false;
+        // twoFaEnabled N'EST PAS touché ici
+        // sa valeur vient du builder (AuthService.register → true, MonProjetApplication admin → false)
     }
 
     public enum Role {

@@ -38,18 +38,29 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         String token = authHeader.substring(7);
 
+        // Token invalide ou expiré
         if (!jwtService.isTokenValid(token)) {
-            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            response.getWriter().write("{\"erreur\":\"Token invalide ou expiré\"}");
+            sendError(response, 401, "Token invalide ou expiré");
+            return;
+        }
+
+        // Un preAuthToken ne donne accès à AUCUNE route protégée
+        // Il est uniquement accepté par /auth/verify-otp (géré dans AuthService)
+        if (jwtService.isPreAuthToken(token)) {
+            sendError(response, 401, "Token temporaire — complétez l'authentification via /auth/verify-otp");
             return;
         }
 
         Long userId = jwtService.extractUserId(token);
         User user = userRepository.findById(userId).orElse(null);
 
-        if (user == null || user.getStatut() == User.Statut.BLOCKED) {
-            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            response.getWriter().write("{\"erreur\":\"Accès refusé\"}");
+        if (user == null) {
+            sendError(response, 401, "Utilisateur introuvable");
+            return;
+        }
+
+        if (user.getStatut() == User.Statut.BLOCKED) {
+            sendError(response, 403, "Compte bloqué");
             return;
         }
 
@@ -62,5 +73,12 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         SecurityContextHolder.getContext().setAuthentication(auth);
         filterChain.doFilter(request, response);
+    }
+
+    private void sendError(HttpServletResponse response, int status, String message)
+            throws IOException {
+        response.setStatus(status);
+        response.setContentType("application/json");
+        response.getWriter().write("{\"erreur\":\"" + message + "\"}");
     }
 }
